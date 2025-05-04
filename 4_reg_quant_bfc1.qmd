@@ -1,0 +1,76 @@
+---
+title: "Regressão quantílica"
+author: "Fernando Lhamas"
+format: html
+editor: visual
+---
+
+```{r}
+library(quantreg)
+
+# Modelo para os quantis 0.25, 0.5 (mediana) e 0.75
+modelo_quant <- rq(
+  NT_GERP ~ cota_racial + factor(NU_ANO),
+  tau = c(0.25, 0.5, 0.75),
+  data = dta_m
+)
+
+summary(modelo_quant)
+
+coef_data <- data.frame(
+  tau = rep(c(0.25, 0.5, 0.75), each = 1),
+  coef = c(0.12115, 0.04711, 0.05384),
+  se = c(0.08137, 0.06064, 0.05955)
+)
+
+ggplot(coef_data, aes(x = tau, y = coef)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = coef - 1.96*se, ymax = coef + 1.96*se), width = 0.05) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Efeito de 'cota_racial' por Quantil", x = "Quantil", y = "Coeficiente")
+
+```
+
+Os resultados da regressão mostram que a nota geral varia em diferentes pontos da distribuição, mas com valores de baixa magnitude. Nos alunos de baixo desempenho (Quartil 1 (0,25), os cotistas tiveram desempenho melhor (+0,14), mas com efeito não signficativo (Intervalo de confiança passa pelo zero). Em 2022 há um aumento significativo nas notas em comparação com 2012. Com os alunos de médio desempenho, o sinal se inverte (-0,13), mas o efeito também é irrisório. Mais uma vez, 2022 apresenta nota geral significativamente maior do que em 2012, em um comportamento crescente ao longo dos 4 períodos. Para os alunois de maior desempenho, o coeficiente foi negativo (-0,16), mas também com magnitude fraca. É importante salientar que o box-plot apresentado anteriormente indicou a incidência de outliers para cima no desempenho de não cotistas raciais. Ainda que haja esse viés provocado pelos outliers, ainda assim não foi suficiente para apresentar efeito significativo de diferença de desempenho. De forma geral, em 2022 há uma melhora substancial nas notas em comparação com 2012.
+
+De forma geral, não há diferenças significativas ao longo dos quartis de desempenho. Outro ponto é que as edições de 2015 e 2018 são bem semelhantes. A melhora em 2022 foi generalizada e afetou todos os grupos. Importante avaliar se houve alguma alteração na avaliação, algum efeito relacionado a pandemia, alguma mudança cultural dos indivíduos ou a nível institucional na gestão dos cursos.
+
+Como conclusão geral, o efeito colateral de desempenho não existiu ao longo dos primeiros 10 anos da lei de cotas, sob o recorte das cotas raciais. Como o objetivo da política de promover mais acesso e ter o acesso mais diverso, por várias interseccionalidades, podemos incluir que é um política eficaz no que se propõe. Contudo, é importante salientar que garantir o acesso por si só, não é suficiente para que ao final, o desempenho seja igual. As políticas afirmativas e de permanência promovidas pelas universidades tem efeito direto no combate a evasão e no desempenho dos alunos ao longo do curso. Portanto, o efeito colateral pode ocorrer se as políticas conjuntas perderem a força. Nas universidades públicas, o orçamento das universidades costuma ser o principal mecanismo para promover as políticas afirmativas. Nas universidades privadas, a saúde financeira das instituições permite promover políticas de inclusão, impulsionadas por capital privado e iniciativas públicas, como os programas PROUNI e FIES.
+
+## Sobre o Diff-in-Diff
+
+O DIff-in-Diff requer que os dados sejam longitudinais. De fato, temos 4 períodos dos mesmos cursos (representados por CO_GRUPO) e cada unidade/faculade/universidade que oferece este curso (CO_CURSO), com o seu código único.
+
+Como não temos a identificação individual dos alunos (por conta da LGPD), o segundo nível mais específico é CO_CURSO, mas no tratamento de dados, decidimos que para ter mais representatividade, a base de dados tem um representante de cada código de curso. Para o pareamento, esse nível de especificidade foi suficiente, mas o DiD requer dados longitudinais. Pela antureza dos dados, não poderíamos assumir como premissa que indivíduos parecidos sejam avaliados de 2012 a 2022. Tentamos obter representantes de cada curso (representado por CO-GRUPO), mas descartamos por ser um nível heterogêneo, já que se trata de qualquer aluno que fez um determinado curso no Brasil. Assim, optamos pela regressão quantílica para avaliar a mudança de desempenho ao longo do tempo e para avaliar se a ausência de diferença é valida para os quartis de desempenho. Assim, podemos avaliar a diferença entre grupos nos recortes de alunos com baixo desempenho, médio desempenho e alto desempenho.
+
+## Diferenças em diferenças
+
+Continuando nossa busca por uma pesquisa social com design mais próximo de um experimento natural ou quasi-experimento, uma das técnicas mais populares é o diff–in-diff. Assim como o PSM, se trata de uma tentativa de simular um estudo experimental usando dados de estudos observacionais.
+
+A técnica se baseia em estudar o efeito diferencial de um tratamento em uma variável de resultado, comparando as mudanças ao longo do tempo na variável resposta com a mudança média ao longo do tempo no grupo de controle.
+
+Como não podemos aplicar o DiD, ficamos apenas com este resultado descritivo com a diferença de desempenho dos cotistas ao longo dos 4 períodos avaliados.
+
+```{r}
+#Gerar dados
+bfc2_nomiss <- bfc2 %>%  # MatchIt does not allow missing values
+  select(CO_GRUPO, NT_GERP, cota_racial, one_of(bfc2_cov)) %>%
+  na.omit()
+
+dados <- bfc2_nomiss %>%
+  select(cota_racial, NU_ANO, NT_GERP, CO_GRUPO)
+ggplot(dados, aes(x = NU_ANO, y = NT_GERP, group = cota_racial, color = cota_racial)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = "Diferenças em Diferenças",
+    subtitle = "Comparação entre grupos Controle e Tratamento",
+    x = "Período",
+    y = "Resultado",
+    color = "Grupo"
+  ) +
+  theme_minimal() +
+  geom_vline(xintercept = 1.5, linetype = "dashed", color = "grey") +
+  annotate("text", x = 1.25, y = 6, label = "Intervenção", color = "grey", angle = 90)
+
+```
