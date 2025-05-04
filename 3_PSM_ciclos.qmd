@@ -1,0 +1,280 @@
+---
+title: "PSM Desempenho ENADE"
+author: "Fernando Lhamas"
+format: html
+editor: visual
+---
+
+## Propensity Score Matching
+
+A partir de um design observacional, podemos realizar uma técnica de pareamento estatístico, que busca estimar o efeito de um tratamento, política ou intervenção, levando em consideração possíveis **covariáveis** que podem afetar o tratamento.
+
+Rosenbaum e Rubin introduziram está técnica em 1983, atribuindo uma probabilidade condicional de cada observação fazer parte do tratamento. Esta probabilidade de fazer parte do tratamento, é baseada nos scores das covariáveis.
+
+Foi percebido então, que ao adotar este método antes de efetivamente estimar os efeitos de um tratamento em uma população em um estudo observacional, podemos reduzir as ameaças à validade interna, provocadas principalmente pela não randomização, ou seja, por não ter um **design experimental.**
+
+O matching nada mais é do que a criação de um grupo de controle artificial, com probabilidades pareadas entre os grupos par a par (tratamento e controle).
+
+O **score de propensão** indica o quão apto ou propenso, a observação está para receber o tratamento. Esse score é formado justamente pelas covariáveis (características que influenciam a variável de tratamento).
+
+## Vantagens e desvantagens
+
+-   O PSM consegue reduzir substancialmente o viés de seleção em estudos observacionais
+
+-   Não podemos dizer que o design observacional foi alterado para um experimento natural, simplesmente por adotar o PSM na análise. O PSM altera o design, se aproximando de um design quasi-experimental.
+
+-   Apesar do evento ou tratamento ser natural, O PSM é deliberadamente aplicado pelo pesquisador para equilibrar os grupos e fortalecer as inferências causais.
+
+-   O PSM não considera variáveis latentes como covariáveis. Isso quer dizer que, qualquer efeito não observável que esteja confundindo as relações entre as variáveis de interesse, não são aplicáveis no PSM.
+
+-   As alternativas para o caso anterior, incluem modelagem de equações estruturais, análise multinível e outras técnicas de quasi-experimento que lidam com variáveis latentes (variáveis instrumentais e regressão discontínua, por exemplo).
+
+-   O próprio PSM, com algumas inovações no algoritmo, permite trabalhar com variáveis latentes. Normalmente, as técnicas quasi-experimentais tem recebido atenção dos pesquisadores para gerar versões com sufixo latente.
+
+## Análise completa
+
+Vamos analisar os dados do ciclo 1 dos microadados do ENADE.
+
+Os dados podem ser obtidos aqui, disponibilizados pelo INEP
+
+\<<https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/microdados/enade>\>
+
+Vamos seguir o passo-a-passo do PSM para realizar a análise.
+
+Vamos iniciar carregando os pacotes e importando a base:
+
+```{r}
+library(MatchIt) # para o PSM
+library(tidyverse)
+library(effectsize) #Para avaliar magnitude dos testes
+```
+
+## Explorando os dados
+
+Vamos começar gerando algumas saídas referentes a diferença de médias dos grupos na variável resposta.
+
+A variável resposta é a nota estandardizada a partir do desempenho geral (0 a 100) ('NT_GER'), e a variável de tratamento é dicotômica ('cota_racial').
+
+Vamos ver o resultados sem valores padronizados
+
+```{r}
+bfc1 %>%
+  group_by(cota_racial) %>%
+  summarise(n_estudantes = n(),
+            n_com_nota = sum(!is.na(NT_GER)),
+            Media = mean(NT_GER, na.rm = TRUE),
+            desvio_padrao = sd(NT_GER, na.rm = TRUE),
+            erro_padrao = desvio_padrao/sqrt(n_com_nota))
+```
+
+Aparentemente as notas estão muito parecidas, então podemos conduzir um teste de comparação de médias sem os valores padronizados. Mas antes, vamos ver como a nota bruta foi padronizada. Para não alterar a base original, coloquei em um novo objeto `bfc2`, a variável 'NT_GERP', sendo a nota padronizada.
+
+```{r}
+bfc2 <- bfc1 %>%
+  mutate(NT_GERP = (NT_GER - mean(NT_GER, na.rm = TRUE)) / sd(NT_GER, na.rm = TRUE))
+```
+
+Agora conduzindo o teste, vamos utilizar o teste t de amostras independentes, já que temos dois grupos independentes na variável de tratamento.
+
+```{r}
+t.test(NT_GERP ~ cota_racial, data=bfc2)
+cohens_d(NT_GERP ~ cota_racial, data = bfc2)
+ggplot(bfc2, aes(x = cota_racial, y = NT_GER)) +
+  geom_boxplot() +
+  labs(title = "Notas Padronizadas por Status de Cota Racial")
+```
+
+Obtivemos uma diferença significativa, com p \< 0,05 e t = -2,01. Assim, evidenciamos a hipótese alternativa, rejeitando a hipótese nula de que o desempenho dos grupos são iguais. No entanto, verificamos que o efeito d de Cohen indica baixa magnitude. Portanto, apesar dos cotistas raciais terem desempenho levemente superior aos não cotistas raciais, a aplicabilidade prática indica que não há diferença de desempenho.
+
+## Avaliando as covariáveis utilizadas
+
+Ao considermos o uso de covariáveis na análise, passamos por um processo em que identificamos na literatura que as covariáveis podem influenciar a relação mensurada pelas variáveis de interesse. Ao não adotar essas covariáveis na análise, podemos tipifica-las como confundidoras. Ao decidir adotar, vamos tipifica-las como variáveis de controle. Quando varremos a literatura, identificamos possíveis covariáveis e decidimos inclui-las na análise, estamos aumentando a validade interna do modelo a ser testado.
+
+Verificamos de forma exploratória, que há diferenças de médias das covariáveis com a variável de tratamento.
+
+Verificamos em testes exploratórios, tanto por análise descritiva, como testes inferenciais, as diferenças de médias de cada variável controle com a variável de tratamento (cotas raciais).
+
+As candidatas a variáveis controle hipotetizadas na literatura são TP_SEXO, QE_I08, QE_I09, QE_I10, QE_I11, QE_I23, NU_ANO
+
+continuar esses testes exploratórios...
+
+```{r}
+bfc2_cov <- c('TP_SEXO','QE_I08', 'QE_I09', 'QE_I10', 'QE_I11', 'QE_I23', 'NU_ANO')
+chisq.test(table(bfc2$TP_SEXO, bfc2$cota_racial))
+t.test(NU_IDADE ~ cota_racial, data = bfc2) 
+#completar os testes depois, não serão reportados
+
+```
+
+Apontamos as variáveis candidatas a variável controle, sendo aquelas que indicam diferenças significativas entre os grupos. Mais a frente, um modelo linear geral pode corroborar os resultados exploratórios e ajudar a decidir as variáveis que serão controle no modelo.
+
+## Estimação dos propensity scores
+
+Agora vamos começar o PSM. Decidimos adotar uma técnica de quasi-experimento que busca criar um grupo de controle artificial, agrupando pares de observações, com características muito parecidas, baseadas nas covariáveis. Dessa forma, podemos isolar os efeitos de outras variáveis na relação que queremos mensurar. Em outras palavras, estamos construindo um contrafactual, alterando o design da pesquisa para um mais robusto (com maior validade interna).
+
+```{r}
+m_ps <- glm(cota_racial ~  TP_SEXO + QE_I08 + QE_I09 + QE_I10 + QE_I11 + QE_I23 + NU_ANO, family = binomial(), data = bfc2)
+summary(m_ps)
+```
+
+Vamos manter as variáveis que tem pelo menos uma categoria influenciando os resultados dos cotistas e não cotistas.
+
+Basicamente, rodamos um modelo de regressão logística para calcular os propensity scores (a probabilidade de cada observação de fazer parte de um grupo da variável de tratamento). Com esse passo inicial, observações que são de um grupo, mas tem características comuns a de outro, são classificados com base nas características (covariáveis).
+
+```{r}
+prs_df <- data.frame(pr_score = predict(m_ps, type = "response"),
+                     cota = m_ps$model$cota_racial)
+head(prs_df)
+```
+
+## Análise da área de suporte comum
+
+Vamos verificar o resultado da classificação de scores, utilizando histogramas:
+
+```{r}
+prs_df %>%
+  ggplot(aes(x = pr_score)) +
+  geom_histogram(color = "white") +
+  facet_wrap(~cota) +
+  xlab("Probabilidade de ser cotista racial") +
+  theme_bw()
+```
+
+Como o grupo de cotistas é menor, é natural que os propensity scores acompanhem o número de observações do grupo menor.
+
+## Executando o matching
+
+Agora podemos parear os dados. Estamos limitados a região de suporte comum, como foi definido anteriormente. O método ou algoritmo adotado aqui, irá procurar pares de observações com propensity scores mais próximos. Na limitação deste método, outros podem ser adotados. Neste momento, também vamos omitir os dados ausentes, pois atrapalham o algoritmo de matching.
+
+```{r}
+bfc2_nomiss <- bfc2 %>%  # MatchIt does not allow missing values
+  select(CO_GRUPO, NT_GERP, cota_racial, one_of(bfc2_cov)) %>%
+  na.omit()
+table(bfc2_nomiss$cota_racial) #verificação de n restante
+mod_match <- matchit(cota_racial ~ QE_I08 + QE_I10 + QE_I11 + NU_ANO, method = "nearest", data = bfc2_nomiss)
+```
+
+O modelo foi gerado. Agora, podemos verificar alguns resultados de qualidade do modelo:
+
+```{r}
+dta_m <- match.data(mod_match)
+dim(dta_m)
+summary(mod_match)
+```
+
+Queremos que as diferenças de médias estejam próximas de 0, para assim corroborar o bom pareamento, indicando que temos grupos bem parecidos e, consequentemente, controlando as covariáveis. Conseguimos parear 766 observações, sendo 383 de cada grupo (controle e tratamento), sem descartar nenhum dado não ausente do menor grupo (dos que estudam em escola católica).
+
+Se tivermos problemas em gerar o modelo de matching, ou em obter bom ajustamento, podemos tentar outros algoritmos de matching.
+
+Vamos agora verificar a diferença de médias que obtivemos:
+
+```{r}
+bfc2_cov2 <- c('QE_I08', 'QE_I10', 'QE_I11', 'NU_ANO')
+table(dta_m$cota_racial, dta_m$QE_I08)
+table(dta_m$cota_racial, dta_m$QE_I10)
+table(dta_m$cota_racial, dta_m$QE_I11)
+table(dta_m$cota_racial, dta_m$NU_ANO)
+
+```
+
+Uma confirmação ainda mais precisa que o matching funcionou é rodar testes de comparação de médias, buscando encontrar a não rejeição da hipótese nula, mas não é um procedimento a ser reportado.
+
+## Efeito do tratamento na variável resposta
+
+Finalmente, vamos nos voltar para as variáveis de interesse e rodar o modelo estatístico novamente, mas dessa vez, nos dados pareados.
+
+```{r}
+t.test(NT_GERP ~ cota_racial, data = dta_m)
+```
+
+Percebemos que a interpretação se mantém, mas agora p-valor \> 0,05, não restando margem para dúvida de que a hipótese nula não pode ser rejeitada. O desempenho geral não é diferente para grupos de cotistas raciais e não cotistas raciais.
+
+```{r}
+dta_m %>%
+  group_by(cota_racial) %>%
+  summarise(n_estudantes = n(),
+            media = mean(NT_GERP),
+            std_error = sd(NT_GERP)/sqrt(n_estudantes))
+```
+
+Podemos ver que as médias nos dados pareados indicam que independente das cotas raciais recebidas para ingresso no curso, não são percebidas mudanças de desempenho na avaliação do ENADE.
+
+## Alguns apontamentos
+
+-   Não é sempre que o uso do PSM consegue provocar mudança de interpretação das hipóteses, como ocorreu neste exemplo, ainda que a magnitude tenha sido baixa.
+-   Conseguimos obter uma magnitude mais fidedigna, mais próxima da realidade, e assim podemos tomar decisões melhores sobre a política pública das cotas raciais.
+-   Neste caso específico, a conclusão seria a mesma, caso não adotassemos o PSM, mas a robustez do PSM traz uma evidência com maior validade interna.
+-   O design de pesquisa observacional era inapropriado para avaliar as diferenças no grupo de tratamento, justamente por haver serias ameaças à validade interna, pois como demonstrado, há algumas covariáveis a serem controladas.
+-   O PSM não só contornou esta situação, mas fez isso a partir de dados já coletados, sem a necessidade de ir a campo novamente fazer um experimento real (seria inviável por ser uma análise ex-post).
+
+## Validação com subamostra
+
+Sabemos que um n grande pode inflar o poder estatístico, levando a decisões erradas em testes de hipóteses. Portanto, para validar os resultados, é importante refazer o teste com as variáveis de interesse a partir de subamostra com n controlado (a partir do cálculo de poder estatístico).
+
+Como temos uma larga amostra, vamos ser conservadores nos parâmetros de cálculo de amostra. Cohen define que para o teste t, temos um efeito pequeno em 0,2, médio em 0,5 e grande 0,8.
+
+```{r}
+library (pwr)
+
+#Verificando amostra com power = 0,95
+
+pwr_result <- pwr.t.test(d = 0.5, power = 0.95, sig.level = 0.05, type = "two.sample")
+total_sample_size <- round(pwr_result$n)
+total_sample_size
+
+# Seleção aleatória proporcional por grupo
+sub_sample <- dta_m %>%
+  group_by(cota_racial) %>%
+  slice_sample(n = total_sample_size) %>%
+  ungroup()
+```
+
+Agora fazemos o teste novamente com a esperança de obter resultados semelhantes
+
+```{r}
+t.test(NT_GERP ~ cota_racial, data = sub_sample)
+```
+
+Obtivemos regra de decisão igual. Portanto, o efeito inflacionado do poder estatístico não altera a conclusão final: Alunos de escolas públicas tem notas substancialmente maiores do que os alunos de escolas católicas.
+
+```{r}
+# Configurar número de repetições
+num_repeticoes <- 20  # Número de subamostragens
+
+# Armazenar p-valores
+p_valores <- numeric(num_repeticoes)
+
+# Loop para realizar subamostragens e calcular os p-valores
+for (i in 1:num_repeticoes) {
+  # Gerar subamostra
+  sub_sample <- dta_m %>%
+    group_by(cota_racial) %>%
+    slice_sample(n = total_sample_size) %>%
+    ungroup()
+  
+  # Realizar teste t com a subamostra
+  teste_t <- t.test(NT_GERP ~ cota_racial, data = sub_sample)
+  p_valores[i] <- teste_t$p.value
+}
+
+# Criar um data frame com os resultados
+resultados <- data.frame(
+  Tentativa = 1:num_repeticoes,
+  P_Valor = p_valores
+)
+
+# Criar o gráfico
+ggplot(resultados, aes(x = Tentativa, y = P_Valor)) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  geom_point(color = "blue") +
+  geom_line(color = "blue", alpha = 0.7) +
+  labs(
+    title = "P-Valores entre Subamostras",
+    x = "Tentativa (Subsample)",
+    y = "Diferença de P-Valor (em relação ao centro)"
+  ) +
+  theme_minimal()
+
+```
+
+Caso você tenha muitas subamostras com p \< 0,05, um procedimento mais robusto pode ser feito: Ao invés de gerar subamostras da amostra pareada, você pode fazer o pareamento de cada subamostra. Assim, garantimos um melhor balanceamento. Se mesmo na forma mais conservadora de cálculo de amostra, os p-valores da subamostras discordarem, podemos afirmar que a diferença é inconclusiva e portanto, não rejeitamos a hipótese nula. O resultado mostra bom balanceamento, com as subamostras em maioria, com valores acima de 0,05 e próximas ao p-valor do teste t realizado com a amostra total.
